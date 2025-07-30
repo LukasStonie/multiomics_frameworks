@@ -1,0 +1,143 @@
+---
+title: "BRCA_Mofa"
+author: "Lukas Steininger"
+date: "2025-06-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+#BiocManager::install(version = "3.21")
+#BiocManager::install("MOFA2")
+
+library(MOFA2)
+library(dplyr)
+
+print(getwd())
+```
+
+# Load the data
+
+Load the omics datasets, convert them into a matrix and transpose said matrix. MOFA expects the samples to be in the columns and the features to be in the rows.
+
+```{r}
+cp <- read.csv("../datasets/BRCA_Data/export_variance_threshold/copy_number.csv", row.names = 1)
+cp_matix <-  t(as.matrix(cp))
+
+gs <- read.csv("../datasets/BRCA_Data/export_variance_threshold/gene_expression.csv", row.names = 1)
+gs_matrix <- t(as.matrix(gs))
+
+pp <- read.csv("../datasets/BRCA_Data/export_variance_threshold/protein_levels.csv", row.names = 1)
+pp_matrix <- t(as.matrix(pp))
+
+mu <- read.csv("../datasets/BRCA_Data/export_variance_threshold/mutation.csv", row.names = 1)
+mu_matrix <- t(as.matrix(mu))
+
+data <- list(cp=t(as.matrix(cp)), gs=t(as.matrix(gs)), pp=t(as.matrix(pp)), mu=t(as.matrix(mu)))
+```
+
+# Load the target
+
+The datasets contain multiple subtypes for each patient/row.
+
+Included are:
+
+-   vital.status [0, 1]
+
+    -   alive and dead (?)
+
+-   PR.status ['Positive' 'Negative', 'Performed but Not Available', 'Indeterminate', 'Not Performed']
+
+    -   indicating whether the cancer cells show Progesterone receptors on their surface
+
+-   ER.status ['Positive' 'Negative', 'Performed but Not Available', 'Indeterminate', 'Not Performed']
+
+    -   indicating whether the cancer cells show Estrogen receptors on their surface
+
+-   HER2.Final.Status ['Negative', 'Positive', 'Equivocal', 'Not Available']
+
+    -   indicating whether the cancer cells overexpress the protein HER2 (Human Epidermal Growth Factor Receptor 2)
+
+-   histological.type ['infiltrating ductal carcinoma', 'infiltrating lobular carcinoma']
+
+    -   type of breast cancer
+
+```{r}
+# read targets of dataset
+targets <- read.csv("../datasets/BRCA_Data/export_variance_threshold/targets.csv", row.names = 1)
+```
+
+# Multi-Omics Factor Analysis
+
+## Define MOFA object
+
+Define a MOFA object that holds the data and groups. This object is subsequently used to generate configurations for the actual analysis.
+
+```{r}
+# define location of model output
+outfile = file.path(getwd(),"BRCA_output", "variance_threshold","model_BRCA_no_group.hdf5")
+
+# create mofa object with groups
+MOFAobject <- create_mofa(data)
+
+sample_metadata <- data.frame(
+  sample = samples_metadata(MOFAobject)[1],
+  vital.status = targets$vital.status,
+  ER.status = targets$ER.Status,
+  PR.status = targets$PR.Status,
+  HER2.status = targets$HER2.Final.Status,
+  histological.type = targets$histological.type
+)
+
+samples_metadata(MOFAobject) <- sample_metadata
+
+```
+## Missingness per class and omics type
+
+```{r}
+plot_data_overview(MOFAobject)
+```
+
+## Generate configurations for analysis
+
+```{r}
+data_opts <- get_default_data_options(MOFAobject)
+head(data_opts)
+```
+
+```{r}
+model_opts <- get_default_model_options(MOFAobject)
+model_opts$num_factors <- 5
+model_opts$likelihoods <- c(
+    cp = "gaussian",
+    gs = "gaussian",
+    pp = "gaussian",
+    mu = "bernoulli"
+)
+
+head(model_opts)
+```
+
+```{r}
+train_opts <- get_default_training_options(MOFAobject)
+train_opts$drop_factor_threshold <- 0.1
+head(train_opts)
+```
+
+## Perform MOFA
+
+```{r}
+MOFAobject_final <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts
+)
+
+
+MOFAobject.trained <- run_mofa(MOFAobject_final, outfile=outfile, use_basilisk = TRUE)
+```
