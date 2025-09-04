@@ -79,21 +79,22 @@ Define a MOFA object that holds the data and groups. This object is subsequently
 
 ```{r}
 # define location of model output
-outfile = file.path(getwd(),"BRCA_output", "variance_threshold","model_BRCA_alive_dead.hdf5")
+outfile = file.path(getwd(),"BRCA_output", "variance_threshold","model_BRCA_ER.hdf5")
 
 # create mofa object with groups
-MOFAobject <- create_mofa(data, groups = targets$vital.status)
+MOFAobject <- create_mofa(data, groups = targets$ER.Status)
 
 # add meta data
-sample_metadata <- data.frame(
-  sample = samples_metadata(MOFAobject)[1],
-  group = samples_metadata(MOFAobject)[2],
-  vital.status = targets$vital.status,
-  ER.status = targets$ER.Status,
-  PR.status = targets$PR.Status,
-  HER2.status = targets$HER2.Final.Status,
-  histological.type = targets$histological.type
-)
+sample_metadata <- (samples_metadata(MOFAobject) %>% 
+                      mutate(sample=as.numeric(sample)) %>% # convert sample to numeric value for sorting
+                      arrange(sample) %>% # sorting ensures that the meta data is correctly matched to the samples
+                      mutate(
+                        vital.status = targets$vital.status,
+                        ER.status = targets$ER.Status,
+                        PR.status = targets$PR.Status,
+                        HER2.status = targets$HER2.Final.Status,
+                        histological.type = targets$histological.type) %>%
+                      mutate(sample = as.character(sample)))
 
 samples_metadata(MOFAobject) <- sample_metadata
 
