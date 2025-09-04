@@ -79,10 +79,10 @@ Define a MOFA object that holds the data and groups. This object is subsequently
 
 ```{r}
 # define location of model output
-outfile = file.path(getwd(),"BRCA_output", "variance_threshold","model_BRCA_ER.hdf5")
+outfile = file.path(getwd(),"BRCA_output", "variance_threshold","model_BRCA_dead_alive.hdf5")
 
 # create mofa object with groups
-MOFAobject <- create_mofa(data, groups = targets$ER.Status)
+MOFAobject <- create_mofa(data, groups = targets$vital.status)
 
 # add meta data
 sample_metadata <- (samples_metadata(MOFAobject) %>% 
