@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Steininger"
+  given-names: "Lukas"
+  orcid: "https://orcid.org/0009-0008-6455-2310"
+title: "Practical Walkthrough of mixOmics and MOFA using two publicly available multiomics data sets"
+url: "https://github.com/LukasStonie/multiomics_frameworks"
