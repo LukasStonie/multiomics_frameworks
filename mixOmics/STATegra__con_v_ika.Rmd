@@ -1,0 +1,255 @@
+---
+title: "STATegra Control vs Ikarus"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(mixOmics) 
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(glue)
+library(stringr)
+library(tibble)
+
+set.seed(3430)
+#setwd("/proj/raman/4_Praktikum_Steininger/MulitOmics/STATegra")
+
+# define a report name that is used as a prefix 
+report_name <- 'STATegra_con_ika'
+
+# create directory for report, if not already existing
+output_dir = file.path(getwd(),"STATegra_output","variance_threshold", report_name)
+ifelse(!dir.exists(output_dir), dir.create(output_dir, recursive =TRUE ), FALSE)
+
+# define paths
+image_path <- file.path(output_dir)
+data_path = "../datasets/STATegra/export_variance_threshold"
+
+```
+
+
+# Reading data sets
+
+## Targets
+Load the meta data associated with every sample
+
+```{r}
+targets.df <-  read.csv(file.path(data_path, "targets.csv"), row.names = 1)
+colnames(targets.df)
+```
+Choose one of the columns in the meta data to use as the target for the analysis
+```{r}
+target <- targets.df$group
+```
+
+
+
+## Proteins
+
+```{r}
+# read protein data
+proteins <- read.csv(file.path(data_path, "proteomics.csv"), row.names = 1)
+proteins <- as.matrix(proteins) #%>% mutate(target = targets$group)
+
+```
+
+## Metabolites
+```{r}
+# read metabolite data
+metabolites <- read.csv(file.path(data_path, "metabolomics.csv"), row.names = 1)
+metabolites <- as.matrix(metabolites) #%>% mutate(target = targets$group)
+
+```
+
+## Transcriptome data
+```{r}
+# read metabolite data
+transcriptome <- read.csv(file.path(data_path, "transcriptomics.csv"), row.names = 1)
+transcriptome <- as.matrix(transcriptome) #%>% mutate(target = targets$group)
+```
+
+# Combine omics data to list
+```{r}
+# define list of labels
+Y <- target
+
+# define combined dataset
+data <- list(Proteomics = proteins,
+             Metabolomics =  metabolites,
+              Transcriptomics =  transcriptome)
+
+```
+
+# Peform sparse partial least squares regression
+```{r}
+list.keepX = c(25, 25) # select arbitrary values of features to keep
+list.keepY = c(25, 25)
+
+perform_spls <- function(comb){
+  
+  # get the names from the passed object
+  first_name <- comb[1]
+  second_name <- comb[2]
+  
+  # get the datasets
+  first_ds <- data[[first_name]]
+  second_ds <- data[[second_name]]
+  
+  # perform the sparse PLS regression
+  spls.analysis <- spls(first_ds, second_ds, keepX = list.keepX, keepY = list.keepY)
+  
+  # create strings
+  png_file_name <- glue("circle_corr_plot_{first_name}_{second_name}.png")
+  title_name <- glue("{first_name} vs {second_name}")
+  
+  png(file.path(image_path, png_file_name))
+  
+  plotVar(spls.analysis, cutoff = 0.5, title =title_name, 
+        legend = c(first_name, second_name), 
+        var.names = FALSE, style = 'graphics', 
+        pch = c(16, 17), cex = c(2,2), 
+        col = c('darkorchid', 'lightgreen'))
+  
+  dev.off()
+  
+  cor(spls.analysis$variates$X, spls.analysis$variates$Y)
+}
+
+combinations <- combn(names(data), m = 2)
+
+test <- apply(combinations, 2, perform_spls)
+```
+
+# DIABLO
+## Design matrix
+In mixOmixs, a design matrix refers to the relationship structure between the various inputted data frames. Each cell can have a value between 0 and 1, with 1 meaning that the respective data sets have a strong relationship, and 0 that the respective data sets have no relationship. The design matrix should reflect the biological question under inspection.
+```{r}
+# form basic DIABLO model
+basic.diablo.model = block.splsda(
+                        X = data, 
+                        Y = Y, 
+                        ncomp = 5, 
+                        design = "full") 
+```
+## Tuning number of components
+Perform tuning of model
+```{r}
+perf.diablo = perf(
+                  basic.diablo.model, 
+                  validation = 'Mfold', 
+                  folds = 3, 
+                  nrepeat = 10)
+
+png(file.path(image_path, 'classification_error_rate.png'))
+plot(perf.diablo) # plot output of tuning
+dev.off()
+```
+Set number of components and distance metric according to the results above
+```{r}
+# set the optimal ncomp value
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "max.dist"]
+
+# show the optimal choice for ncomp for each dist metric
+perf.diablo$choice.ncomp$WeightedVote 
+```
+
+## Tuning number of features
+```{r}
+# set grid of values for each component to test
+test.keepX = list (Proteomics = c(1, 5, 15, 20, 25), 
+                   Metabolomics = c(1, 5, 15, 20, 25),
+                   Transcriptomics = c(1, 5, 15, 20, 25))
+
+# run the feature selection tuning
+tune.stratega = tune.block.splsda(X = data, Y = Y, ncomp = ncomp, 
+                              test.keepX = test.keepX, design = "full",
+                              validation = 'Mfold', folds = 5, nrepeat = 10,
+                              dist = "max.dist")
+
+list.keepX = tune.stratega$choice.keepX # set the optimal values of features to retain
+list.keepX
+```
+## Final DIABLO model
+```{r}
+# set the optimised DIABLO model
+final.diablo.model = block.splsda(X = data, Y = Y, ncomp = ncomp, 
+                                design = "full",
+                                keepX = list.keepX)
+
+final.diablo.model$design # design matrix for the final model
+```
+### Inspect selected features in each Omics data set
+```{r}
+# the features selected to form the first component
+selectVar(final.diablo.model, block = 'Proteomics', comp = 1)$Proteomics$name 
+# the features selected to form the first component
+selectVar(final.diablo.model, block = 'Metabolomics', comp = 1)$Metabolomics$name 
+# the features selected to form the first component
+selectVar(final.diablo.model, block = 'Transcriptomics', comp = 1)$Transcriptomics$name 
+```
+### Plots for DIABLO
+```{r}
+png(file.path(image_path, 'sample_plot.png'))
+plotIndiv(final.diablo.model, ind.names = FALSE, legend = TRUE, 
+          title = 'DIABLO Sample Plots')
+dev.off()
+
+png(file.path(image_path, 'arrow_plot.png'))
+plotArrow(final.diablo.model, ind.names = FALSE, legend = TRUE, 
+          title = 'DIABLO')
+dev.off()
+
+png(file.path(image_path, 'vaiable_plot.png'))
+plotVar(final.diablo.model, var.names = FALSE, 
+        style = 'graphics', legend = TRUE,
+        pch = c(16, 17,18), cex = c(2,2,2), 
+        col = c('darkorchid', 'lightgreen', 'chocolate'))
+dev.off()
+
+png(file.path(image_path, 'loadings.png'))
+plotLoadings(final.diablo.model, comp = 2, contrib = 'max', method = 'median', size.legend = 0.65 )
+dev.off()
+
+#png(file.path(image_path, 'network.png'))
+#network(final.diablo.model, blocks = c(1,2), color.node = c('darkorchid', 'lightgreen'), cutoff = 0.4)
+#dev.off()
+```
+
+# Results
+```{r}
+png(file.path(image_path, 'diablo_plot.png'))
+plotDiablo(final.diablo.model, ncomp = 1)
+dev.off()
+
+png(file.path(image_path, 'cim_plot.png'), width = 480, height = 480)
+cimDiablo(final.diablo.model,
+          legend.position = "topright",
+          trim=TRUE,
+          row.names = FALSE,
+          size.legend = 0.65,
+          margins = c(8, 12),
+          col.cex = 1,
+          cut.tree = c(0.5,1),
+          cluster = "both",
+          color.blocks = c('darkorchid', 'lightgreen', 'lightblue'))
+dev.off()
+
+png(file.path(image_path, 'circus_plot.png'),width = 1000, height = 480)
+circosPlot(final.diablo.model, 
+           cutoff = 0.9, 
+           line = TRUE,
+           color.blocks= c('darkorchid', 'lightgreen', 'lightblue'),
+           color.cor = c("chocolate3","grey20"), 
+           size.labels = 2,
+           size.legend = 1.2,
+           size.variables = 1,
+           showIntraLinks = TRUE,
+           ncol.legend = 1)
+dev.off()
+```
+
+
