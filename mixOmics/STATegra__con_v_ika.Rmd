@@ -86,8 +86,8 @@ data <- list(Proteomics = proteins,
 
 # Peform sparse partial least squares regression
 ```{r}
-list.keepX = c(25, 25) # select arbitrary values of features to keep
-list.keepY = c(25, 25)
+list.keepX = c(25, 25) # number of loadings to keep for each component
+list.keepY = c(25, 25) # number of variables
 
 perform_spls <- function(comb){
   
@@ -148,26 +148,29 @@ png(file.path(image_path, 'classification_error_rate.png'))
 plot(perf.diablo) # plot output of tuning
 dev.off()
 ```
+Show the number of components for each metric and method
+```{r}
+# show the optimal choice for ncomp for each dist metric
+perf.diablo$choice.ncomp$WeightedVote 
+```
+
 Set number of components and distance metric according to the results above
 ```{r}
 # set the optimal ncomp value
 ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "max.dist"]
-
-# show the optimal choice for ncomp for each dist metric
-perf.diablo$choice.ncomp$WeightedVote 
 ```
 
 ## Tuning number of features
 ```{r}
 # set grid of values for each component to test
-test.keepX = list (Proteomics = c(1, 5, 15, 20, 25), 
-                   Metabolomics = c(1, 5, 15, 20, 25),
-                   Transcriptomics = c(1, 5, 15, 20, 25))
+test.keepX = list (Proteomics = c(5, 20, 25), 
+                   Metabolomics = c(5, 20, 25),
+                   Transcriptomics = c(5, 20, 25))
 
 # run the feature selection tuning
 tune.stratega = tune.block.splsda(X = data, Y = Y, ncomp = ncomp, 
                               test.keepX = test.keepX, design = "full",
-                              validation = 'Mfold', folds = 5, nrepeat = 10,
+                              validation = 'Mfold', folds =3 , nrepeat = 5,
                               dist = "max.dist")
 
 list.keepX = tune.stratega$choice.keepX # set the optimal values of features to retain
@@ -182,7 +185,7 @@ final.diablo.model = block.splsda(X = data, Y = Y, ncomp = ncomp,
 
 final.diablo.model$design # design matrix for the final model
 ```
-### Inspect selected features in each Omics data set
+### Inspect selected features in each Omics data set for the first component
 ```{r}
 # the features selected to form the first component
 selectVar(final.diablo.model, block = 'Proteomics', comp = 1)$Proteomics$name 

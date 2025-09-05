@@ -103,9 +103,6 @@ perform_spls <- function(comb){
   first_name <- comb[1]
   second_name <- comb[2]
   
-  print(first_name)
-  print(second_name)
-  
   # get the datasets
   first_ds <- data[[first_name]]
   second_ds <- data[[second_name]]
@@ -163,13 +160,18 @@ png(file.path(image_path, 'classification_error_rate.png'))
 plot(perf.diablo) # plot output of tuning
 dev.off()
 ```
+Show the number of components for each metric and method
+```{r}
+# show the optimal choice for ncomp for each dist metric
+perf.diablo$choice.ncomp$WeightedVote 
+```
+
 Set number of components and distance metric according to the results above
 ```{r}
 # set the optimal ncomp value
-ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "max.dist"]
-
-# show the optimal choice for ncomp for each dist metric
-perf.diablo$choice.ncomp$WeightedVote 
+# for later analysis, ncomp cannot be 1, so please alter the indexes
+# in the following line if necessary
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "mahalanobis.dist"]
 ```
 
 ## Tuning number of features
@@ -184,7 +186,7 @@ test.keepX = list (CopyNumber = c(5, 15, 25),
 tune.stratega = tune.block.splsda(X = data, Y = Y, ncomp = ncomp, 
                               test.keepX = test.keepX, design = "full",
                               validation = 'Mfold', folds = 3, nrepeat = 5,
-                              dist = "max.dist")
+                              dist = "centroids.dist")
 
 list.keepX = tune.stratega$choice.keepX # set the optimal values of features to retain
 list.keepX
@@ -198,7 +200,7 @@ final.diablo.model = block.splsda(X = data, Y = Y, ncomp = ncomp,
 
 final.diablo.model$design # design matrix for the final model
 ```
-### Inspect selected features in each Omics data set
+### Inspect selected features in each Omics data set for the first component
 ```{r}
 selectVar(final.diablo.model, block = 'CopyNumber', comp = 1)$CopyNumber$name 
 
@@ -223,12 +225,12 @@ dev.off()
 png(file.path(image_path, 'vaiable_plot.png'))
 plotVar(final.diablo.model, var.names = FALSE, 
         style = 'graphics', legend = TRUE,
-        pch = c(16, 17,18), cex = c(2,2,2), 
-        col = c('darkorchid', 'lightgreen', 'chocolate'))
+        pch = c(16, 17,18, 19), cex = c(2,2,2,2), 
+        col = c('darkorchid', 'lightgreen', 'chocolate', 'red'))
 dev.off()
 
 png(file.path(image_path, 'loadings.png'))
-plotLoadings(final.diablo.model, comp = 2, contrib = 'max', method = 'median', size.legend = 0.65 )
+plotLoadings(final.diablo.model, comp = 1, contrib = 'max', method = 'median', size.legend = 0.65 )
 dev.off()
 
 #png(file.path(image_path, 'network.png'))
@@ -252,14 +254,14 @@ cimDiablo(final.diablo.model,
           col.cex = 1,
           cut.tree = c(0.5,1),
           cluster = "both",
-          color.blocks = c('darkorchid', 'lightgreen', 'lightblue'))
+          color.blocks = c('darkorchid', 'lightgreen', 'lightblue', 'red'))
 dev.off()
 
 png(file.path(image_path, 'circus_plot.png'),width = 1000, height = 480)
 circosPlot(final.diablo.model, 
            cutoff = 0.9, 
            line = TRUE,
-           color.blocks= c('darkorchid', 'lightgreen', 'lightblue'),
+           color.blocks= c('darkorchid', 'lightgreen', 'lightblue', 'red'),
            color.cor = c("chocolate3","grey20"), 
            size.labels = 2,
            size.legend = 1.2,
